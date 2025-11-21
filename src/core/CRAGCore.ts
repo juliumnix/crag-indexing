@@ -5,9 +5,17 @@ import type { VectorDatabaseConfig } from '../interfaces/IVectorDatabase';
 import type { IndexedRepository, IndexingConfig } from '../models/IndexedRepository';
 import type { RAGQuery, SemanticSearchResult } from '../models/RAGQuery';
 import type { DependencyGraph } from '../models/FileMetadata';
+import type { EndorsementConfig } from '../endorsement/types';
+import type { ContextBudgetOptions } from '../models/RAGQuery';
 import { RepositoryIndexer } from './RepositoryIndexer';
 import { EmbeddingProviderFactory } from '../services/embeddings/EmbeddingProviderFactory';
 import { VectorDatabaseFactory } from '../backends/VectorDatabaseFactory';
+import { EndorsementEngine } from '../endorsement/EndorsementEngine';
+import { VersionEngine } from '../versioning/VersionEngine';
+import { ContextBudgetManager } from '../context/ContextBudgetManager';
+import { Inspector } from '../observability/Inspector';
+import { ConflictDetector } from '../conflict/ConflictDetector';
+import { DeprecationTracker } from '../deprecation/DeprecationTracker';
 import { createTreeLogger } from '../utils/logger';
 import type { TreeLogger } from '../utils/treeLogger';
 
@@ -55,6 +63,27 @@ export interface CodeRAGConfig {
     /** Salvar índice em disco */
     persist?: boolean;
   };
+
+  /** Configuração de endorsement (credibilidade de fontes) */
+  endorsement?: EndorsementConfig;
+
+  /** Configuração de versionamento */
+  versioning?: {
+    enabled: boolean;
+    detectFromGit?: boolean;
+  };
+
+  /** Configuração de context budget */
+  contextBudget?: {
+    defaultMaxTokens?: number;
+    defaultReservedTokens?: number;
+  };
+
+  /** Configuração de observabilidade */
+  observability?: {
+    enabled: boolean;
+    traceStorage?: string;
+  };
 }
 
 /**
@@ -89,10 +118,41 @@ export class CRAGCore {
   private indexer: RepositoryIndexer | null = null;
   private embeddingProvider: IEmbeddingProvider | null = null;
   private vectorDatabase: IVectorDatabase | null = null;
+  private endorsementEngine: EndorsementEngine | null = null;
+  private versionEngine: VersionEngine | null = null;
+  private contextManager: ContextBudgetManager | null = null;
+  private inspector: Inspector | null = null;
+  private conflictDetector: ConflictDetector | null = null;
+  private deprecationTracker: DeprecationTracker | null = null;
 
   constructor(config: CodeRAGConfig) {
     this.log = createTreeLogger({ component: 'CodeRAG' }, { structuredLogger: false });
     this.config = config;
+
+    // Initialize endorsement engine if configured
+    if (config.endorsement) {
+      this.endorsementEngine = new EndorsementEngine(config.endorsement);
+    }
+
+    // Initialize version engine if configured
+    if (config.versioning?.enabled) {
+      this.versionEngine = new VersionEngine(config.projectPath);
+      this.versionEngine.loadBreakingChanges();
+    }
+
+    // Initialize context budget manager
+    this.contextManager = new ContextBudgetManager();
+
+    // Initialize inspector if configured
+    if (config.observability?.enabled) {
+      this.inspector = new Inspector();
+    }
+
+    // Initialize conflict detector
+    this.conflictDetector = new ConflictDetector();
+
+    // Initialize deprecation tracker
+    this.deprecationTracker = new DeprecationTracker(config.projectPath);
   }
 
   /**
@@ -135,19 +195,171 @@ export class CRAGCore {
    * Busca semântica no código indexado
    */
   async query(query: RAGQuery): Promise<SemanticSearchResult[]> {
-    // Inicializar providers se necessário
-    await this.initializeProviders();
+    // Start trace if observability enabled
+    const trace = this.inspector?.startTrace(query.text);
 
-    // Criar indexador se ainda não foi criado (pode ter sido carregado)
-    if (!this.indexer) {
-      // Tentar carregar repositório existente
-      const repository = await this.load();
-      if (!repository) {
-        throw new Error('Repositório não indexado. Chame index() primeiro.');
+    try {
+      // Inicializar providers se necessário
+      await this.initializeProviders();
+
+      // Criar indexador se ainda não foi criado (pode ter sido carregado)
+      if (!this.indexer) {
+        // Tentar carregar repositório existente
+        const repository = await this.load();
+        if (!repository) {
+          throw new Error('Repositório não indexado. Chame index() primeiro.');
+        }
       }
+
+      // Busca semântica normal
+      let results = await this.indexer!.query(query);
+      if (trace) {
+        this.inspector!.recordStage(trace.id, {
+          name: 'vector-search',
+          duration: 0, // TODO: measure actual duration
+          input: { topK: query.topK },
+          output: { candidates: results.length },
+          metadata: {},
+        });
+      }
+
+      // Aplicar version filtering se habilitado
+      if (this.versionEngine && query.version) {
+        const targetVersion = this.versionEngine
+          .getVersionDetector()
+          .parseVersion(query.version.target);
+
+        if (targetVersion) {
+          results = results.filter(r => {
+            const chunkVersion = (r.metadata as any).versionContext?.version;
+            if (!chunkVersion) return true; // No version = include
+
+            const comparison = this.versionEngine!
+              .getVersionDetector()
+              .compare(chunkVersion, targetVersion);
+
+            if (comparison === 0) return true; // Exact match
+            if (comparison > 0 && query.version!.includeNewer) return true;
+            if (comparison < 0 && query.version!.includeOlder) return true;
+
+            return false;
+          });
+
+          // Add breaking changes if requested
+          if (query.version.includeBreakingChanges) {
+            const changes = this.versionEngine.getBreakingChanges(targetVersion);
+            if (changes.length > 0) {
+              const breakingChangeText = this.versionEngine.formatBreakingChanges(changes);
+              results.unshift({
+                filePath: 'breaking-changes',
+                content: breakingChangeText,
+                similarity: 1.0,
+                metadata: {
+                  type: 'breaking-changes',
+                  startLine: 1,
+                  endLine: 1,
+                  language: 'markdown',
+                },
+              } as SemanticSearchResult);
+            }
+          }
+        }
+      }
+
+      // Aplicar endorsement reranking se habilitado
+      if (this.endorsementEngine && query.endorsement?.enabled) {
+        const endorsed = this.endorsementEngine.rerank(results);
+
+        // Filtrar por credibilidade mínima se especificado
+        const minCred = query.endorsement.minCredibility || 0;
+        const filtered = endorsed.filter(r => r.credibilityScore >= minCred);
+
+        // Converter para SemanticSearchResult
+        results = filtered.map(r => ({
+          filePath: r.chunk.filePath,
+          content: r.chunk.content,
+          similarity: r.embeddingScore,
+          metadata: r.chunk.metadata,
+          embeddingScore: r.embeddingScore,
+          credibilityScore: r.credibilityScore,
+          finalRelevance: r.finalRelevance,
+          explanation: r.explanation,
+        }));
+      }
+
+      // Aplicar context budget optimization se habilitado
+      if (this.contextManager && query.contextBudget) {
+        const budget = {
+          maxTokens: query.contextBudget.maxTokens,
+          reservedTokens: query.contextBudget.reservedTokens,
+          availableTokens:
+            query.contextBudget.maxTokens - query.contextBudget.reservedTokens,
+          deduplication: query.contextBudget.deduplication ?? true,
+          prioritizeRecent: query.contextBudget.prioritizeRecent ?? true,
+        };
+
+        const optimized = this.contextManager.optimize(results, budget);
+        const totalTokens = optimized.reduce((sum, r) => sum + r.tokenCount, 0);
+
+        results = optimized.map(r => ({
+          ...r,
+          usedTokens: totalTokens,
+        }));
+      }
+
+      // Detectar conflitos se habilitado
+      if (this.conflictDetector && query.detectConflicts) {
+        const conflicts = this.conflictDetector.detectConflicts(results);
+        results = results.map(r => {
+          const relatedConflicts = conflicts.filter(c =>
+            c.sources.some(s => s.chunkId === r.metadata.chunkId)
+          );
+          if (relatedConflicts.length > 0) {
+            return {
+              ...r,
+              conflicts: relatedConflicts.map(c => ({
+                level: c.level,
+                title: c.title,
+                description: c.description,
+              })),
+            };
+          }
+          return r;
+        });
+      }
+
+      // Adicionar avisos de deprecação
+      if (this.deprecationTracker) {
+        results = this.deprecationTracker.addWarnings(results);
+      }
+
+      if (trace) {
+        trace.chunksReturned = results.length;
+        trace.chunksRetrieved = results.length;
+        this.inspector!.endTrace(trace.id);
+      }
+
+      return results;
+    } catch (error) {
+      if (trace) {
+        this.inspector!.endTrace(trace.id);
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Fornece feedback sobre um resultado
+   */
+  async provideFeedback(
+    resultId: string,
+    feedback: { positive: boolean; comment?: string }
+  ): Promise<void> {
+    if (!this.endorsementEngine) {
+      throw new Error('Endorsement engine not enabled');
     }
 
-    return await this.indexer!.query(query);
+    this.endorsementEngine.recordFeedback(resultId, feedback.positive);
   }
 
   /**

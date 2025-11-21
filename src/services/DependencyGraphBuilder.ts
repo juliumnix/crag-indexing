@@ -40,6 +40,8 @@ export class DependencyGraphBuilder {
       // Create file metadata
       const metadata: FileMetadata = {
         filePath,
+        path: filePath,
+        name: path.basename(filePath),
         relativePath: this.getRelativePath(filePath),
         size: 0, // Will be set later if needed
         language: this.detectLanguage(filePath),
@@ -73,7 +75,7 @@ export class DependencyGraphBuilder {
       metadata.coreScore = this.calculateCoreScore(metadata, files);
     }
 
-    return {
+    const graph: DependencyGraph = {
       files,
       getImporters: (filePath: string) => {
         const importers = this.reverseGraph.get(filePath) || new Set();
@@ -83,11 +85,9 @@ export class DependencyGraphBuilder {
         const imports = this.importGraph.get(filePath) || new Set();
         return Array.from(imports).map(fp => files.get(fp)!).filter(Boolean);
       },
-      calculateCoreScore: (filePath: string) => {
-        const metadata = files.get(filePath);
-        return metadata ? this.calculateCoreScore(metadata, files) : 0;
-      },
     };
+
+    return graph;
   }
 
   /**
@@ -175,36 +175,36 @@ export class DependencyGraphBuilder {
     let score = 0;
 
     // Factor 1: Number of files that import this file (popularity)
-    const importCount = metadata.importedBy.length;
+    const importCount = (metadata.importedBy || []).length;
     score += Math.min(importCount * 10, 40);
 
     // Factor 2: Path-based heuristics
-    if (this.isCorePathPattern(metadata.filePath)) {
+    if (metadata.filePath && this.isCorePathPattern(metadata.filePath)) {
       score += 30;
     }
 
     // Factor 3: Hub factor (imports many files)
-    if (metadata.imports.length > 5) {
+    if ((metadata.imports || []).length > 5) {
       score += 15;
     }
 
     // Factor 4: Imported by core files
-    const coreImporters = metadata.importedBy.filter(importer => {
+    const coreImporters = (metadata.importedBy || []).filter(importer => {
       const importerMeta = allFiles.get(importer);
-      return importerMeta && this.isCorePathPattern(importerMeta.filePath);
+      return importerMeta && importerMeta.filePath && this.isCorePathPattern(importerMeta.filePath);
     });
     score += coreImporters.length * 5;
 
     // Penalties
-    if (this.isConfigFile(metadata.filePath)) {
+    if (metadata.filePath && this.isConfigFile(metadata.filePath)) {
       score -= 50;
     }
 
-    if (this.isDocumentationFile(metadata.filePath)) {
+    if (metadata.filePath && this.isDocumentationFile(metadata.filePath)) {
       score -= 50;
     }
 
-    if (importCount === 0 && !this.isEntryFile(metadata.filePath)) {
+    if (importCount === 0 && metadata.filePath && !this.isEntryFile(metadata.filePath)) {
       score -= 20;
     }
 

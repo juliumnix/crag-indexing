@@ -24,6 +24,7 @@ export class LlamaCppEmbeddingProvider implements IEmbeddingProvider {
   private context: any = null; // LlamaContext
   private initialized: boolean = false;
   private isNomicEmbedCode: boolean = false; // Detecta se é o modelo nomic-embed-code
+  private isJinaCodeEmbeddings: boolean = false; // Detecta se é o modelo jina-code-embeddings
 
   constructor(config: {
     modelPath: string;
@@ -46,9 +47,15 @@ export class LlamaCppEmbeddingProvider implements IEmbeddingProvider {
     this.dimensions = config.dimensions || 768; // Default, will be updated when model loads
     this.maxTokens = config.maxTokens || 8192;
     
-    // Detectar se é o modelo nomic-embed-code baseado no nome do arquivo
+    // Detectar qual modelo está sendo usado baseado no nome do arquivo
     const modelFileName = path.basename(this.modelPath).toLowerCase();
     this.isNomicEmbedCode = modelFileName.includes('nomic-embed-code');
+    this.isJinaCodeEmbeddings = modelFileName.includes('jina-code-embeddings');
+    
+    // Ajustar dimensões padrão baseado no modelo
+    if (this.isJinaCodeEmbeddings && !config.dimensions) {
+      (this as any).dimensions = 896; // Jina Code Embeddings tem 896 dimensões
+    }
   }
 
   /**
@@ -109,7 +116,16 @@ export class LlamaCppEmbeddingProvider implements IEmbeddingProvider {
       });
 
       // Create embedding context (não createContext normal)
-      this.context = await this.model.createEmbeddingContext();
+      // Para modelos Jina, pode precisar de configuração específica
+      // Tentar passar maxTokens se disponível na API
+      try {
+        this.context = await this.model.createEmbeddingContext({
+          maxTokens: this.maxTokens,
+        } as any);
+      } catch {
+        // Se não aceitar parâmetros, usar sem configuração
+        this.context = await this.model.createEmbeddingContext();
+      }
 
       // Update dimensions from model if available
       if (this.model.embeddingSize) {
@@ -140,8 +156,10 @@ export class LlamaCppEmbeddingProvider implements IEmbeddingProvider {
   }
 
   /**
-   * Adiciona o prefixo necessário para queries do nomic-embed-code
-   * Segundo a documentação: queries devem começar com "Represent this query for searching relevant code: "
+   * Adiciona o prefixo necessário baseado no modelo usado
+   * - nomic-embed-code: queries começam com "Represent this query for searching relevant code: "
+   * - jina-code-embeddings: queries começam com "Find the most relevant code snippet given the following query:\n"
+   *                        passages começam com "Candidate code snippet:\n"
    */
   private prepareTextForEmbedding(text: string, isQuery: boolean = false): string {
     if (this.isNomicEmbedCode && isQuery) {
@@ -149,6 +167,18 @@ export class LlamaCppEmbeddingProvider implements IEmbeddingProvider {
       // Evitar duplicar o prefixo se já estiver presente
       if (!text.trim().startsWith(queryPrefix)) {
         return queryPrefix + text;
+      }
+    } else if (this.isJinaCodeEmbeddings) {
+      if (isQuery) {
+        const queryPrefix = 'Find the most relevant code snippet given the following query:\n';
+        if (!text.trim().startsWith(queryPrefix)) {
+          return queryPrefix + text;
+        }
+      } else {
+        const passagePrefix = 'Candidate code snippet:\n';
+        if (!text.trim().startsWith(passagePrefix)) {
+          return passagePrefix + text;
+        }
       }
     }
     return text;
@@ -172,7 +202,14 @@ export class LlamaCppEmbeddingProvider implements IEmbeddingProvider {
     for (const text of texts) {
       try {
         // Preparar o texto (adicionar prefixo se necessário para nomic-embed-code)
-        const preparedText = this.prepareTextForEmbedding(text, isQuery);
+        let preparedText = this.prepareTextForEmbedding(text, isQuery);
+        
+        // Truncar texto se exceder maxTokens (estimativa: ~4 chars por token)
+        // Deixar margem de segurança (80% do limite)
+        const maxChars = Math.floor(this.maxTokens * 0.8 * 4);
+        if (preparedText.length > maxChars) {
+          preparedText = preparedText.substring(0, maxChars);
+        }
         
         // Usar a API correta do node-llama-cpp para embeddings
         // Segundo a documentação: context.getEmbeddingFor(text) retorna { vector: number[] }

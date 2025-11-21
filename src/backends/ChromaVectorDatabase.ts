@@ -188,8 +188,8 @@ export class ChromaVectorDatabase implements IVectorDatabase {
           astNode: metadata.astNode,
           language: metadata.language,
           chunkId: metadata.chunkId || '',
-          fileType: metadata.fileType,
-          directory: metadata.directory,
+          fileType: metadata.fileType || '',
+          directory: metadata.directory || '',
         },
       };
     }

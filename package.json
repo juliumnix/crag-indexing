@@ -15,7 +15,8 @@
     "prepublishOnly": "npm run build",
     "postinstall": "ts-node scripts/download-model.ts",
     "download-model": "ts-node scripts/download-model.ts",
-    "test:index": "tsx test-indexing-local.ts"
+    "test:index": "tsx test-indexing-local.ts",
+    "test:v1": "tsx test-v1-features.ts"
   },
   "keywords": [
     "code-indexing",
@@ -34,14 +35,18 @@
   "dependencies": {
     "@huggingface/hub": "^2.6.13",
     "@pinecone-database/pinecone": "^6.1.3",
+    "commander": "^11.0.0",
+    "micromatch": "^4.0.5",
     "node-llama-cpp": "^3.14.2",
     "ollama": "^0.6.2",
     "pino": "^9.0.0",
     "tree-sitter": "^0.21.0",
     "tree-sitter-typescript": "^0.23.2",
-    "uuid": "^13.0.0"
+    "uuid": "^13.0.0",
+    "yaml": "^2.3.0"
   },
   "devDependencies": {
+    "@types/micromatch": "^4.0.10",
     "@types/node": "^20.0.0",
     "@types/uuid": "^10.0.0",
     "ts-node": "^10.9.2",

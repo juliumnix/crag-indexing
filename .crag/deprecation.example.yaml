@@ -1,0 +1,17 @@
+# Example deprecation configuration
+# Copy this file to deprecation.yaml and customize for your project
+
+sources:
+  - url: "old-docs.company.com/**"
+    deprecated: true
+    deprecatedAt: "2024-01-01"
+    reason: "Moved to docs.company.com"
+    replacedBy: "docs.company.com/**"
+    removeAt: "2025-12-31"
+    
+  - url: "confluence.company.com/old-wiki/**"
+    deprecated: true
+    deprecatedAt: "2023-06-01"
+    reason: "Wiki migrated to new structure"
+    replacedBy: "confluence.company.com/wiki/**"
+
