@@ -87,7 +87,7 @@ async function main() {
     
     // 🆕 Indexar URLs públicas de documentação
     urlIndexing: {
-      tavilyApiKey: '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',
+      tavilyApiKey: process.env.TAVILY_API_KEY || '', // Configure TAVILY_API_KEY no .env
       urls: [
         // Documentação oficial do framework/biblioteca
         'https://docs.nextjs.org/docs/getting-started',

@@ -261,7 +261,7 @@ async function main() {
   let tavilyApiKey: string | undefined;
   
   if (shouldIndexUrls) {
-    const apiKey = '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'; // || await prompt('👉 Tavily API Key (ou configure TAVILY_API_KEY no .env): ');
+    const apiKey = process.env.TAVILY_API_KEY || await prompt('👉 Tavily API Key (ou configure TAVILY_API_KEY no .env): ');
     if (apiKey) {
       tavilyApiKey = apiKey;
       
