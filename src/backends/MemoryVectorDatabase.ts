@@ -107,7 +107,7 @@ export class MemoryVectorDatabase implements IVectorDatabase {
 
     if (filters.directories && filters.directories.length > 0) {
       const dir = path.dirname(vector.filePath);
-      const matches = filters.directories.some(filterDir =>
+      const matches = filters.directories.some((filterDir: string) =>
         dir.includes(filterDir) || dir.startsWith(filterDir)
       );
       if (!matches) {
@@ -122,7 +122,7 @@ export class MemoryVectorDatabase implements IVectorDatabase {
     }
 
     if (filters.excludePaths && filters.excludePaths.length > 0) {
-      const isExcluded = filters.excludePaths.some(excludePath =>
+      const isExcluded = filters.excludePaths.some((excludePath: string) =>
         vector.filePath.includes(excludePath)
       );
       if (isExcluded) {

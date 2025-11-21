@@ -39,6 +39,7 @@ export class RepositoryIndexer implements IRepositoryIndexer {
     this.config = config;
 
     // Initialize services
+    // FileCollector will be configured in index() method based on config
     this.fileCollector = new FileCollector();
     this.graphBuilder = new DependencyGraphBuilder();
 
@@ -98,8 +99,18 @@ export class RepositoryIndexer implements IRepositoryIndexer {
       chunkOverlap: config?.chunkOverlap || 10,
       persist: config?.persist ?? true,
       storagePath: config?.storagePath || this.config.storagePath || '.analyzer_cache',
-      embeddingDelay: config?.embeddingDelay || 100
+      embeddingDelay: config?.embeddingDelay || 100,
+      includeMarkdown: config?.includeMarkdown ?? false,
     };
+
+    // Configure FileCollector to include Markdown if needed
+    if (effectiveConfig.includeMarkdown) {
+      const { FileCollector, VALID_EXTENSIONS } = await import('../services/FileCollector');
+      this.fileCollector = new FileCollector({
+        validExtensions: [...VALID_EXTENSIONS, '.md', '.markdown'],
+      });
+      this.log.info('FileCollector configured to include Markdown files');
+    }
 
     // Step 1: Collect files
     this.log.info('Step 1/5: Collecting files...');
@@ -143,26 +154,39 @@ export class RepositoryIndexer implements IRepositoryIndexer {
 
         // Generate embeddings for each chunk
         for (const chunk of chunks) {
-          const embedding = await this.embeddingProvider.embed(chunk.content);
+          try {
+            // Validar tamanho do chunk antes de processar
+            if (chunk.content.length > 100000) {
+              this.log.warn(`Chunk muito grande (${chunk.content.length} chars) em ${path.basename(filePath)}:${chunk.startLine}, truncando...`);
+              chunk.content = chunk.content.substring(0, 100000);
+            }
+            
+            const embedding = await this.embeddingProvider.embed(chunk.content);
 
-          const vector: CodeVector = {
-            id: this.generateVectorId(chunk.id, filePath),
-            filePath,
-            content: chunk.content,
-            embedding,
-            metadata: {
-              startLine: chunk.startLine,
-              endLine: chunk.endLine,
-              astNode: chunk.astNode,
-              language: chunk.language,
-              chunkId: chunk.id,
-              fileType: path.extname(filePath),
-              directory: path.dirname(filePath),
-              characteristics: this.extractCharacteristics(chunk.content),
-            },
-          };
+            const vector: CodeVector = {
+              id: this.generateVectorId(chunk.id, filePath),
+              filePath,
+              content: chunk.content,
+              embedding,
+              metadata: {
+                startLine: chunk.startLine,
+                endLine: chunk.endLine,
+                astNode: chunk.astNode,
+                language: chunk.language,
+                chunkId: chunk.id,
+                fileType: path.extname(filePath),
+                directory: path.dirname(filePath),
+                characteristics: this.extractCharacteristics(chunk.content),
+              },
+            };
 
-          allChunks.push(vector);
+            allChunks.push(vector);
+          } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            this.log.error(`Failed to generate embedding for chunk ${chunk.id} in ${path.basename(filePath)}: ${errorMessage}`);
+            // Continuar com próximo chunk ao invés de falhar completamente
+            errorCount++;
+          }
         }
 
         successCount++;

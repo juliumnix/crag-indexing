@@ -15,7 +15,7 @@
     "prepublishOnly": "npm run build",
     "postinstall": "ts-node scripts/download-model.ts",
     "download-model": "ts-node scripts/download-model.ts",
-    "test:index": "tsx test-indexing-local.ts",
+    "test": "tsx test-v1-features.ts",
     "test:v1": "tsx test-v1-features.ts"
   },
   "keywords": [
@@ -35,6 +35,7 @@
   "dependencies": {
     "@huggingface/hub": "^2.6.13",
     "@pinecone-database/pinecone": "^6.1.3",
+    "@tavily/core": "^0.5.13",
     "commander": "^11.0.0",
     "micromatch": "^4.0.5",
     "node-llama-cpp": "^3.14.2",

@@ -75,10 +75,19 @@ export class ASTChunkingStrategy implements IChunkingStrategy {
         
         // End chunk when braces are balanced (for JS/TS)
         if (braceDepth === 0 && (line.includes('}') || line.match(/;$/))) {
+          let chunkContent = currentChunk.content;
+          // Limitar tamanho do chunk (máximo ~100k caracteres)
+          const maxChars = 100000;
+          if (chunkContent.length > maxChars) {
+            chunkContent = chunkContent.substring(0, maxChars);
+            const truncatedLines = chunkContent.split('\n');
+            currentChunk.endLine = currentChunk.startLine + truncatedLines.length - 1;
+          }
+          
           chunks.push({
             id: this.generateChunkId(filePath, chunkIndex),
             filePath,
-            content: currentChunk.content,
+            content: chunkContent,
             startLine: currentChunk.startLine,
             endLine: currentChunk.endLine,
             astNode: currentChunk.astNode,
@@ -92,10 +101,19 @@ export class ASTChunkingStrategy implements IChunkingStrategy {
     
     // Add any remaining chunk
     if (currentChunk) {
+      let chunkContent = currentChunk.content;
+      // Limitar tamanho do chunk (máximo ~100k caracteres)
+      const maxChars = 100000;
+      if (chunkContent.length > maxChars) {
+        chunkContent = chunkContent.substring(0, maxChars);
+        const truncatedLines = chunkContent.split('\n');
+        currentChunk.endLine = currentChunk.startLine + truncatedLines.length - 1;
+      }
+      
       chunks.push({
         id: this.generateChunkId(filePath, chunkIndex),
         filePath,
-        content: currentChunk.content,
+        content: chunkContent,
         startLine: currentChunk.startLine,
         endLine: currentChunk.endLine,
         astNode: currentChunk.astNode,
@@ -135,12 +153,29 @@ export class ASTChunkingStrategy implements IChunkingStrategy {
   }
 
   private createFallbackChunk(filePath: string, content: string, language: string): CodeChunk {
+    // Limitar tamanho do chunk para evitar problemas com modelos de embedding
+    // Máximo de ~2000 linhas ou ~100k caracteres
+    const maxLines = 2000;
+    const maxChars = 100000;
+    let finalContent = content;
+    let finalEndLine = content.split('\n').length;
+    
+    if (finalEndLine > maxLines || content.length > maxChars) {
+      finalContent = content.split('\n').slice(0, maxLines).join('\n');
+      if (finalContent.length > maxChars) {
+        finalContent = finalContent.substring(0, maxChars);
+        finalEndLine = finalContent.split('\n').length;
+      } else {
+        finalEndLine = maxLines;
+      }
+    }
+    
     return {
       id: 'full-file',
       filePath,
-      content,
+      content: finalContent,
       startLine: 1,
-      endLine: content.split('\n').length,
+      endLine: finalEndLine,
       language,
     };
   }

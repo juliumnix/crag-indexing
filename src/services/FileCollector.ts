@@ -20,6 +20,7 @@ export const EXCLUDED_DIRECTORIES = new Set([
   '.idea',
   'tmp',
   'temp',
+  // Note: .crag is NOT excluded so that URL-indexed content can be included
 ]);
 
 /**
@@ -223,7 +224,9 @@ export class FileCollector {
         const normalizedPath = this.normalizePath(fullPath);
 
         // Skip hidden files and excluded directories
-        if (entry.name.startsWith('.') || this.shouldSkipDirectory(entry.name)) {
+        // But allow .crag directory (for URL-indexed content)
+        const isCragDir = entry.name === '.crag';
+        if ((entry.name.startsWith('.') && !isCragDir) || this.shouldSkipDirectory(entry.name)) {
           skipped.push({ path: fullPath, reason: 'excluded directory' });
           continue;
         }

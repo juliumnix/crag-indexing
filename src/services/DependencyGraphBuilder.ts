@@ -77,6 +77,8 @@ export class DependencyGraphBuilder {
 
     const graph: DependencyGraph = {
       files,
+      imports: this.importGraph,
+      importedBy: this.reverseGraph,
       getImporters: (filePath: string) => {
         const importers = this.reverseGraph.get(filePath) || new Set();
         return Array.from(importers).map(fp => files.get(fp)!).filter(Boolean);
@@ -189,7 +191,7 @@ export class DependencyGraphBuilder {
     }
 
     // Factor 4: Imported by core files
-    const coreImporters = (metadata.importedBy || []).filter(importer => {
+    const coreImporters = (metadata.importedBy || []).filter((importer: string) => {
       const importerMeta = allFiles.get(importer);
       return importerMeta && importerMeta.filePath && this.isCorePathPattern(importerMeta.filePath);
     });

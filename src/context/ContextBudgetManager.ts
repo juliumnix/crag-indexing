@@ -63,7 +63,7 @@ export class ContextBudgetManager {
         if (similarity > 0.9) {
           // 90% similar = duplicate
           isDuplicate = true;
-          chunk.similarTo = [...(chunk.similarTo || []), other.metadata.chunkId || ''];
+          chunk.similarTo = [...(chunk.similarTo || []), (other.metadata?.chunkId as string) || ''];
           break;
         }
       }

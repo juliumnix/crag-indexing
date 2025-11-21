@@ -45,7 +45,14 @@ export class LlamaCppEmbeddingProvider implements IEmbeddingProvider {
 
     this.modelPath = path.resolve(config.modelPath);
     this.dimensions = config.dimensions || 768; // Default, will be updated when model loads
-    this.maxTokens = config.maxTokens || 8192;
+    
+    // Para modelos Jina, usar limite menor (512 tokens)
+    // Para outros modelos, usar 8192 como padrão
+    if (this.isJinaCodeEmbeddings) {
+      this.maxTokens = config.maxTokens || 512;
+    } else {
+      this.maxTokens = config.maxTokens || 8192;
+    }
     
     // Detectar qual modelo está sendo usado baseado no nome do arquivo
     const modelFileName = path.basename(this.modelPath).toLowerCase();
@@ -205,15 +212,49 @@ export class LlamaCppEmbeddingProvider implements IEmbeddingProvider {
         let preparedText = this.prepareTextForEmbedding(text, isQuery);
         
         // Truncar texto se exceder maxTokens (estimativa: ~4 chars por token)
-        // Deixar margem de segurança (80% do limite)
-        const maxChars = Math.floor(this.maxTokens * 0.8 * 4);
+        // Deixar margem de segurança (70% do limite para evitar problemas)
+        const maxChars = Math.floor(this.maxTokens * 0.7 * 4);
         if (preparedText.length > maxChars) {
           preparedText = preparedText.substring(0, maxChars);
         }
         
+        // Validar que o texto não está vazio
+        if (!preparedText || preparedText.trim().length === 0) {
+          throw new Error('Text is empty after preparation');
+        }
+        
         // Usar a API correta do node-llama-cpp para embeddings
         // Segundo a documentação: context.getEmbeddingFor(text) retorna { vector: number[] }
-        const embeddingResult = await this.context.getEmbeddingFor(preparedText);
+        // Adicionar timeout e tratamento de erro mais robusto
+        let embeddingResult: any;
+        try {
+          embeddingResult = await Promise.race([
+            this.context.getEmbeddingFor(preparedText),
+            new Promise((_, reject) => 
+              setTimeout(() => reject(new Error('Embedding timeout after 30s')), 30000)
+            ),
+          ]) as any;
+        } catch (error) {
+          const errorMsg = error instanceof Error ? error.message : String(error);
+          // Se for erro fatal do llama.cpp, tentar recriar o contexto
+          if (errorMsg.includes('fatal') || errorMsg.includes('llama-context')) {
+            console.error(`⚠️  Erro fatal no llama.cpp ao processar texto de ${text.length} chars. Tentando recriar contexto...`);
+            // Tentar recriar o contexto
+            try {
+              if (this.context) {
+                await this.dispose();
+              }
+              await this.initialize();
+              // Tentar novamente com texto menor
+              const smallerText = preparedText.substring(0, Math.floor(maxChars * 0.5));
+              embeddingResult = await this.context.getEmbeddingFor(smallerText);
+            } catch (retryError) {
+              throw new Error(`Failed to generate embedding after retry: ${errorMsg}. Original error: ${retryError instanceof Error ? retryError.message : String(retryError)}`);
+            }
+          } else {
+            throw error;
+          }
+        }
         
         if (!embeddingResult || !embeddingResult.vector || !Array.isArray(embeddingResult.vector)) {
           throw new Error('Invalid embedding response from model - expected { vector: number[] }');

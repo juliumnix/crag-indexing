@@ -414,7 +414,7 @@ export class PineconeVectorDatabase implements IVectorDatabase {
       // For now, we'll check if directory starts with any of the filter directories
       // This is a limitation - we might need to store directory parts separately
       filterConditions.push({
-        $or: filters.directories.map(dir => ({
+        $or: filters.directories.map((dir: string) => ({
           directory: { $regex: `^${dir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}` },
         })),
       });
@@ -430,7 +430,7 @@ export class PineconeVectorDatabase implements IVectorDatabase {
     // Exclude paths filter
     if (filters.excludePaths && filters.excludePaths.length > 0) {
       filterConditions.push({
-        $and: filters.excludePaths.map(excludePath => ({
+        $and: filters.excludePaths.map((excludePath: string) => ({
           filePath: { $ne: excludePath },
         })),
       });

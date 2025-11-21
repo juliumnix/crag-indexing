@@ -6,4 +6,5 @@ models/
 *.log
 .DS_Store
 .env
+.crag-model-config.json
 

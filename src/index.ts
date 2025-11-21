@@ -4,6 +4,9 @@ export * from './core';
 // Services
 export * from './services';
 
+// URL Indexing
+export * from './services/url';
+
 // Backends
 export * from './backends';
 

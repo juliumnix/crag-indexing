@@ -12,17 +12,35 @@ const execAsync = promisify(exec);
  * Executado no postinstall do npm
  */
 
-// Modelo de embedding GGUF para código
-// nomic-embed-code é otimizado para código e suporta múltiplas linguagens
-const MODEL_CONFIG = {
-  repo: 'nomic-ai/nomic-embed-code-GGUF',
-  file: 'nomic-embed-code.Q4_K_M.gguf', // Versão recomendada: boa qualidade e tamanho razoável (~4GB)
-  note: 'nomic-embed-code GGUF - Modelo otimizado para código (7B parâmetros)',
-  dimensions: 4096, // Dimensões do embedding (baseado na arquitetura Qwen2.5-7B)
-  originalRepo: 'nomic-ai/nomic-embed-code'
+// Configurações dos modelos disponíveis
+const MODEL_CONFIGS = {
+  light: {
+    name: 'jina-code-embeddings-0.5b',
+    repo: 'jinaai/jina-code-embeddings-0.5b-GGUF',
+    files: [
+      'jina-code-embeddings-0.5b-Q4_K_M.gguf',  // 4-bit (recomendado)
+      'jina-code-embeddings-0.5b-Q8_0.gguf',    // 8-bit (alternativa)
+      'jina-code-embeddings-0.5b-F16.gguf',     // 16-bit (alternativa)
+    ],
+    note: 'Jina Code Embeddings - Modelo leve otimizado para código (~300-500MB)',
+    dimensions: 896,
+    sizeApprox: '~300-500MB',
+  },
+  complete: {
+    name: 'nomic-embed-code',
+    repo: 'nomic-ai/nomic-embed-code-GGUF',
+    files: [
+      'nomic-embed-code.Q4_K_M.gguf', // Versão recomendada
+    ],
+    note: 'Nomic Embed Code - Modelo completo otimizado para código (7B parâmetros)',
+    dimensions: 4096,
+    sizeApprox: '~4GB',
+    originalRepo: 'nomic-ai/nomic-embed-code'
+  }
 };
 
 const MODELS_DIR = path.join(process.cwd(), 'models');
+const CONFIG_FILE = path.join(process.cwd(), '.crag-model-config.json');
 
 /**
  * Abre a URL no navegador padrão
@@ -135,7 +153,7 @@ async function getHuggingFaceToken(): Promise<string> {
           try {
             // Testar o token tentando baixar um arquivo pequeno do repositório do modelo
             await downloadFileToCacheDir({
-              repo: MODEL_CONFIG.repo,
+              repo: MODEL_CONFIGS.complete.repo,
               path: 'README.md',
               accessToken: token
             });
@@ -167,10 +185,76 @@ async function getHuggingFaceToken(): Promise<string> {
 }
 
 /**
- * Tenta baixar o modelo
+ * Salva a configuração do modelo escolhido
  */
-async function tryDownloadModel(
-  model: typeof MODEL_CONFIG,
+function saveModelConfig(selectedModels: string[]): void {
+  const config = {
+    selectedModels,
+    timestamp: new Date().toISOString(),
+  };
+  fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2));
+}
+
+/**
+ * Lê a configuração do modelo salva
+ */
+function loadModelConfig(): { selectedModels: string[] } | null {
+  if (fs.existsSync(CONFIG_FILE)) {
+    try {
+      return JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8'));
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+/**
+ * Pergunta ao usuário qual modelo baixar
+ */
+async function askModelChoice(rl: readline.Interface): Promise<string[]> {
+  return new Promise((resolve) => {
+    console.log('\n' + '='.repeat(60));
+    console.log('🤖 Escolha o Modelo de Embedding');
+    console.log('='.repeat(60));
+    console.log('\n📦 Modelos disponíveis:\n');
+    console.log('1. 🪶 Leve (jina-code-embeddings-0.5b)');
+    console.log('   - Tamanho: ~300-500MB');
+    console.log('   - Dimensões: 896');
+    console.log('   - Recomendado para: desenvolvimento, testes rápidos\n');
+    console.log('2. 🚀 Completo (nomic-embed-code)');
+    console.log('   - Tamanho: ~4GB');
+    console.log('   - Dimensões: 4096');
+    console.log('   - Recomendado para: produção, máxima qualidade\n');
+    console.log('3. 📦 Ambos (leve + completo)');
+    console.log('   - Permite escolher qual usar em tempo de execução\n');
+    
+    const askChoice = () => {
+      rl.question('👉 Escolha (1, 2 ou 3): ', (answer) => {
+        const choice = answer.trim();
+        if (choice === '1') {
+          resolve(['light']);
+        } else if (choice === '2') {
+          resolve(['complete']);
+        } else if (choice === '3') {
+          resolve(['light', 'complete']);
+        } else {
+          console.log('❌ Opção inválida. Escolha 1, 2 ou 3.\n');
+          askChoice();
+        }
+      });
+    };
+    
+    askChoice();
+  });
+}
+
+/**
+ * Tenta baixar um arquivo de modelo específico
+ */
+async function tryDownloadModelFile(
+  repo: string,
+  fileName: string,
   accessToken: string,
   targetPath: string
 ): Promise<boolean> {
@@ -180,8 +264,8 @@ async function tryDownloadModel(
       path: string;
       accessToken: string;
     } = {
-      repo: model.repo,
-      path: model.file,
+      repo,
+      path: fileName,
       accessToken: accessToken,
     };
 
@@ -198,99 +282,150 @@ async function tryDownloadModel(
   }
 }
 
-async function downloadModel() {
-  const modelPath = path.join(MODELS_DIR, MODEL_CONFIG.file);
+/**
+ * Baixa um modelo específico (light ou complete)
+ */
+async function downloadSpecificModel(
+  modelType: 'light' | 'complete',
+  accessToken: string,
+  rl?: readline.Interface
+): Promise<boolean> {
+  const config = MODEL_CONFIGS[modelType];
+  const modelPath = path.join(MODELS_DIR, config.files[0]);
   
   // Verificar se o modelo já existe
   if (fs.existsSync(modelPath)) {
     const stats = fs.statSync(modelPath);
     const sizeMB = (stats.size / 1024 / 1024).toFixed(2);
-    console.log(`✅ Modelo já existe: ${modelPath} (${sizeMB} MB)`);
-    return;
+    console.log(`✅ Modelo ${config.name} já existe: ${modelPath} (${sizeMB} MB)`);
+    return true;
+  }
+
+  // Verificar se há qualquer arquivo do modelo já baixado
+  if (fs.existsSync(MODELS_DIR)) {
+    const files = fs.readdirSync(MODELS_DIR).filter(f => 
+      f.endsWith('.gguf') && f.toLowerCase().includes(config.name.toLowerCase().split('-')[0])
+    );
+    if (files.length > 0) {
+      const foundPath = path.join(MODELS_DIR, files[0]);
+      const stats = fs.statSync(foundPath);
+      const sizeMB = (stats.size / 1024 / 1024).toFixed(2);
+      console.log(`✅ Modelo ${config.name} encontrado: ${foundPath} (${sizeMB} MB)`);
+      return true;
+    }
   }
 
   console.log('\n' + '='.repeat(60));
-  console.log('📥 Download do Modelo de Embedding');
+  console.log(`📥 Download do Modelo: ${config.name}`);
   console.log('='.repeat(60));
-  console.log(`\n📦 Modelo: ${MODEL_CONFIG.repo}`);
-  console.log(`📄 Arquivo: ${MODEL_CONFIG.file}`);
+  console.log(`\n📦 Repositório: ${config.repo}`);
+  console.log(`📄 Arquivo: ${config.files[0]}`);
   console.log(`📁 Destino: ${modelPath}`);
-  console.log(`ℹ️  ${MODEL_CONFIG.note}`);
-  console.log(`🔢 Dimensões: ${MODEL_CONFIG.dimensions}`);
-  console.log(`📊 Tamanho aproximado: ~4GB (Q4_K_M quantizado)\n`);
+  console.log(`ℹ️  ${config.note}`);
+  console.log(`🔢 Dimensões: ${config.dimensions}`);
+  console.log(`📊 Tamanho aproximado: ${config.sizeApprox}\n`);
+
+  // Criar diretório se não existir
+  if (!fs.existsSync(MODELS_DIR)) {
+    fs.mkdirSync(MODELS_DIR, { recursive: true });
+  }
+
+  // Tentar baixar cada arquivo até encontrar um que funcione
+  let success = false;
+  for (const fileName of config.files) {
+    const targetPath = path.join(MODELS_DIR, fileName);
+    console.log(`⏳ Tentando baixar ${fileName}...`);
+    
+    const downloaded = await tryDownloadModelFile(config.repo, fileName, accessToken, targetPath);
+    
+    if (downloaded && fs.existsSync(targetPath)) {
+      const stats = fs.statSync(targetPath);
+      const sizeMB = (stats.size / 1024 / 1024).toFixed(2);
+      console.log(`\n✅ Modelo baixado com sucesso!`);
+      console.log(`📦 Modelo: ${config.repo}/${fileName}`);
+      console.log(`📊 Tamanho: ${sizeMB} MB`);
+      console.log(`📁 Local: ${targetPath}`);
+      console.log(`🔢 Dimensões: ${config.dimensions}\n`);
+      success = true;
+      break;
+    } else {
+      console.log(`   ⚠️  ${fileName} não encontrado, tentando próximo...`);
+    }
+  }
+
+  if (!success) {
+    console.error(`\n❌ Não foi possível baixar o modelo ${config.name}.`);
+    console.error(`   Verifique os arquivos disponíveis em:`);
+    console.error(`   https://huggingface.co/${config.repo}/tree/main`);
+    return false;
+  }
+
+  return true;
+}
+
+async function downloadModel() {
+  // Verificar se estamos em modo interativo
+  const isAutoInstall = process.env.npm_lifecycle_event === 'postinstall' && !process.stdin.isTTY;
+  
+  // Se for instalação automática sem TTY, pular a escolha e usar configuração salva ou padrão
+  if (isAutoInstall) {
+    const savedConfig = loadModelConfig();
+    if (savedConfig && savedConfig.selectedModels.length > 0) {
+      console.log('\n📋 Usando configuração salva anteriormente');
+      console.log(`   Modelos selecionados: ${savedConfig.selectedModels.join(', ')}\n`);
+      // Não baixar automaticamente no postinstall, apenas informar
+      console.log('💡 Para baixar os modelos, execute: npm run download-model\n');
+      return;
+    } else {
+      // Se não houver configuração, apenas informar
+      console.log('\n💡 Execute "npm run download-model" para escolher e baixar o modelo de embedding\n');
+      return;
+    }
+  }
+
+  // Modo interativo: perguntar qual modelo baixar
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout
+  });
 
   try {
-    // Criar diretório se não existir
-    if (!fs.existsSync(MODELS_DIR)) {
-      fs.mkdirSync(MODELS_DIR, { recursive: true });
-      console.log(`📁 Diretório criado: ${MODELS_DIR}\n`);
-    }
-
+    // Perguntar qual modelo baixar
+    const selectedModels = await askModelChoice(rl);
+    
+    // Salvar a escolha
+    saveModelConfig(selectedModels);
+    
     // Obter token de autenticação (obrigatório)
     let accessToken = await getHuggingFaceToken();
-
-    // Baixar o modelo
-    console.log('⏳ Iniciando download (isso pode demorar vários minutos, ~4GB)...');
-    console.log('   Usando @huggingface/hub para download seguro...\n');
     
-    let retries = 0;
-    const maxRetries = 3;
-    
-    while (retries < maxRetries) {
-      try {
-        const success = await tryDownloadModel(MODEL_CONFIG, accessToken, modelPath);
-        
-        if (success) {
-          // Sucesso!
-          console.log('\n' + '='.repeat(60));
-          console.log('✅ Modelo baixado com sucesso!');
-          console.log('='.repeat(60));
-          const stats = fs.statSync(modelPath);
-          console.log(`\n📦 Modelo: ${MODEL_CONFIG.repo}/${MODEL_CONFIG.file}`);
-          console.log(`📊 Tamanho: ${(stats.size / 1024 / 1024).toFixed(2)} MB`);
-          console.log(`📁 Local: ${modelPath}`);
-          console.log(`🔢 Dimensões: ${MODEL_CONFIG.dimensions}\n`);
-          return;
-        } else {
-          throw new Error('Download falhou sem detalhes específicos');
-        }
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        
-        // Se for erro de autenticação, pedir token novamente
-        if (errorMessage.includes('401') || errorMessage.includes('Unauthorized') || errorMessage.includes('Invalid')) {
-          console.log('\n❌ Erro de autenticação detectado.');
-          console.log('   O token pode estar inválido ou expirado.\n');
-          
-          if (retries < maxRetries - 1) {
-            console.log('🔄 Tentando novamente com novo token...\n');
-            accessToken = await getHuggingFaceToken();
-            retries++;
-            continue;
-          } else {
-            throw new Error('Token inválido após múltiplas tentativas. Verifique seu token em https://huggingface.co/settings/tokens');
-          }
-        }
-        
-        // Outros erros
-        throw new Error(
-          `Erro ao baixar modelo: ${errorMessage}\n` +
-          `Acesse https://huggingface.co/${MODEL_CONFIG.repo} para ver os arquivos disponíveis`
-        );
+    // Baixar os modelos selecionados
+    let allSuccess = true;
+    for (const modelType of selectedModels) {
+      const success = await downloadSpecificModel(modelType as 'light' | 'complete', accessToken, rl);
+      if (!success) {
+        allSuccess = false;
       }
     }
+    
+    if (allSuccess) {
+      console.log('\n' + '='.repeat(60));
+      console.log('✅ Download concluído!');
+      console.log('='.repeat(60));
+      console.log('\n💡 Dica: Você pode escolher qual modelo usar em tempo de execução');
+      console.log('   Configuração salva em: .crag-model-config.json\n');
+    } else {
+      console.log('\n⚠️  Alguns modelos não foram baixados. Verifique os erros acima.\n');
+    }
+    
+    rl.close();
   } catch (error) {
+    rl.close();
     const errorMessage = error instanceof Error ? error.message : String(error);
     console.error('\n' + '='.repeat(60));
     console.error('❌ Erro ao baixar modelo');
     console.error('='.repeat(60));
     console.error(`\n${errorMessage}\n`);
-    console.error('💡 Alternativas:');
-    console.error(`   1. Acesse: https://huggingface.co/${MODEL_CONFIG.repo}`);
-    console.error(`   2. Baixe o arquivo ${MODEL_CONFIG.file} manualmente`);
-    console.error(`   3. Coloque em: ${modelPath}`);
-    console.error(`   4. Ou use: huggingface-cli download ${MODEL_CONFIG.repo} --include "${MODEL_CONFIG.file}" --local-dir models`);
-    console.error();
     process.exit(1);
   }
 }

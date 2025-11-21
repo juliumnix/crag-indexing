@@ -84,6 +84,7 @@ export class FeedbackStore {
   private load(): void {
     if (!this.storagePath) return;
 
+    // storagePath is a directory, not a file path
     const filePath = path.join(this.storagePath, 'feedback.json');
     if (!fs.existsSync(filePath)) {
       return;
@@ -113,9 +114,10 @@ export class FeedbackStore {
   private save(): void {
     if (!this.storagePath) return;
 
-    const dir = path.dirname(this.storagePath);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
+    // storagePath is a directory, not a file path
+    // Create directory if it doesn't exist
+    if (!fs.existsSync(this.storagePath)) {
+      fs.mkdirSync(this.storagePath, { recursive: true });
     }
 
     const filePath = path.join(this.storagePath, 'feedback.json');

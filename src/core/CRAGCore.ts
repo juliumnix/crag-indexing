@@ -1,3 +1,5 @@
+import * as path from 'path';
+import * as fs from 'fs';
 import type { IEmbeddingProvider } from '../interfaces/IEmbeddingProvider';
 import type { IVectorDatabase } from '../interfaces/IVectorDatabase';
 import type { EmbeddingProviderConfig } from '../interfaces/IEmbeddingProvider';
@@ -16,6 +18,7 @@ import { ContextBudgetManager } from '../context/ContextBudgetManager';
 import { Inspector } from '../observability/Inspector';
 import { ConflictDetector } from '../conflict/ConflictDetector';
 import { DeprecationTracker } from '../deprecation/DeprecationTracker';
+import { URLIndexer } from '../services/url/URLIndexer';
 import { createTreeLogger } from '../utils/logger';
 import type { TreeLogger } from '../utils/treeLogger';
 
@@ -84,6 +87,18 @@ export interface CodeRAGConfig {
     enabled: boolean;
     traceStorage?: string;
   };
+
+  /** Configuração para indexar URLs públicas (usando Tavily) */
+  urlIndexing?: {
+    /** Tavily API key */
+    tavilyApiKey?: string;
+    /** URLs públicas para indexar */
+    urls?: string[];
+    /** Diretório para salvar conteúdo extraído */
+    storagePath?: string;
+    /** Tempo de expiração do cache em meses (padrão: 3) */
+    cacheExpirationMonths?: number;
+  };
 }
 
 /**
@@ -131,7 +146,12 @@ export class CRAGCore {
 
     // Initialize endorsement engine if configured
     if (config.endorsement) {
-      this.endorsementEngine = new EndorsementEngine(config.endorsement);
+      // Resolve feedbackStoragePath relative to projectPath if it's a relative path
+      const endorsementConfig = { ...config.endorsement };
+      if (endorsementConfig.feedbackStoragePath && !path.isAbsolute(endorsementConfig.feedbackStoragePath)) {
+        endorsementConfig.feedbackStoragePath = path.join(config.projectPath, endorsementConfig.feedbackStoragePath);
+      }
+      this.endorsementEngine = new EndorsementEngine(endorsementConfig);
     }
 
     // Initialize version engine if configured
@@ -156,10 +176,61 @@ export class CRAGCore {
   }
 
   /**
+   * Indexa URLs públicas usando Tavily (se configurado)
+   */
+  async indexURLs(): Promise<Array<{ url: string; filePath: string; cached: boolean }>> {
+    if (!this.config.urlIndexing?.urls || this.config.urlIndexing.urls.length === 0) {
+      this.log.info('No URLs configured for indexing');
+      return [];
+    }
+
+    if (!this.config.urlIndexing.tavilyApiKey) {
+      throw new Error('Tavily API key is required for URL indexing. Set urlIndexing.tavilyApiKey in config.');
+    }
+
+    // Resolve storage path: if relative, resolve from projectPath; if absolute, use as is
+    let storagePath: string;
+    if (this.config.urlIndexing.storagePath) {
+      if (path.isAbsolute(this.config.urlIndexing.storagePath)) {
+        storagePath = this.config.urlIndexing.storagePath;
+      } else {
+        // Relative path - resolve from projectPath
+        storagePath = path.resolve(this.config.projectPath, this.config.urlIndexing.storagePath);
+      }
+    } else {
+      // Default: .crag/urls inside projectPath
+      storagePath = path.resolve(this.config.projectPath, '.crag', 'urls');
+    }
+
+    const urlIndexer = new URLIndexer({
+      tavilyApiKey: this.config.urlIndexing.tavilyApiKey,
+      storagePath,
+      cacheExpirationMonths: this.config.urlIndexing.cacheExpirationMonths,
+    });
+
+    this.log.info(`Indexing ${this.config.urlIndexing.urls.length} URLs...`);
+    const indexed = await urlIndexer.index(this.config.urlIndexing.urls);
+    
+    this.log.success(`Indexed ${indexed.length} URLs to ${storagePath}`);
+    return indexed;
+  }
+
+  /**
    * Indexa o repositório
    * Cria embeddings e armazena no banco vetorial
    */
   async index(): Promise<IndexedRepository> {
+    // Verificar se projectPath existe
+    const resolvedProjectPath = path.resolve(this.config.projectPath);
+    if (!fs.existsSync(resolvedProjectPath)) {
+      throw new Error(`Project path does not exist: ${resolvedProjectPath}`);
+    }
+
+    // Indexar URLs primeiro (se configurado)
+    if (this.config.urlIndexing?.urls && this.config.urlIndexing.urls.length > 0) {
+      await this.indexURLs();
+    }
+
     // Inicializar providers se ainda não foram inicializados
     await this.initializeProviders();
 
@@ -186,6 +257,8 @@ export class CRAGCore {
       embeddingDelay: this.config.indexing?.embeddingDelay,
       persist: this.config.storage?.persist,
       storagePath: this.config.storage?.path,
+      // Se há URL indexing, incluir arquivos Markdown para indexar conteúdo das URLs
+      includeMarkdown: this.config.urlIndexing?.urls && this.config.urlIndexing.urls.length > 0,
     };
 
     return await this.indexer.index(indexingConfig);
