@@ -17,6 +17,7 @@ import { VectorDatabaseFactory } from '../backends/VectorDatabaseFactory';
 import { createTreeLogger } from '../utils/logger';
 import type { TreeLogger } from '../utils/treeLogger';
 import { inferLanguageFromFilePath } from '../utils/language';
+import { extractCharacteristics } from '../utils/codeCharacteristics';
 
 /**
  * RepositoryIndexer
@@ -176,7 +177,7 @@ export class RepositoryIndexer implements IRepositoryIndexer {
                 chunkId: chunk.id,
                 fileType: path.extname(filePath),
                 directory: path.dirname(filePath),
-                characteristics: this.extractCharacteristics(chunk.content),
+                characteristics: extractCharacteristics(chunk.content),
               },
             };
 
@@ -285,11 +286,6 @@ export class RepositoryIndexer implements IRepositoryIndexer {
       filteredResults = results.filter(r => r.similarity >= query.minSimilarity!);
     }
 
-    // TODO: Implement reranking if requested
-    if (query.rerank) {
-      this.log.warn('Reranking not yet implemented');
-    }
-
     return filteredResults;
   }
 
@@ -389,26 +385,5 @@ export class RepositoryIndexer implements IRepositoryIndexer {
       .digest('hex')
       .substring(0, 16);
     return `${this.config.projectId}:${chunkId}:${hash}`;
-  }
-
-  /**
-   * Extract code characteristics from content
-   */
-  private extractCharacteristics(content: string) {
-    const lines = content.split('\n').length;
-    const words = content.split(/\s+/).length;
-    const imports = (content.match(/import\s+/g) || []).length;
-    const exports = (content.match(/export\s+/g) || []).length;
-    const functions = (content.match(/(function|=>|=>\s*\{)/g) || []).length;
-    const classes = (content.match(/class\s+/g) || []).length;
-
-    return {
-      lines,
-      words,
-      imports,
-      exports,
-      functions,
-      classes,
-    };
   }
 }

@@ -1,7 +1,8 @@
-import * as path from 'path';
 import type { IVectorDatabase } from '../interfaces/IVectorDatabase';
 import type { CodeVector } from '../models/CodeChunk';
 import type { RAGQueryFilters, SemanticSearchResult } from '../models/RAGQuery';
+import { cosineSimilarity } from '../utils/similarity';
+import { matchesFilters } from '../utils/filters';
 
 /**
  * In-memory vector database
@@ -36,11 +37,11 @@ export class MemoryVectorDatabase implements IVectorDatabase {
 
     for (const vector of this.vectors.values()) {
       // Apply filters
-      if (filters && !this.matchesFilters(vector, filters)) {
+      if (filters && !matchesFilters(vector, filters)) {
         continue;
       }
 
-      const similarity = this.cosineSimilarity(queryVector, vector.embedding);
+      const similarity = cosineSimilarity(queryVector, vector.embedding);
 
       results.push({
         filePath: vector.filePath,
@@ -92,77 +93,5 @@ export class MemoryVectorDatabase implements IVectorDatabase {
 
   async close(): Promise<void> {
     this.vectors.clear();
-  }
-
-  /**
-   * Check if a vector matches the given filters
-   */
-  private matchesFilters(vector: CodeVector, filters: RAGQueryFilters): boolean {
-    if (filters.fileTypes && filters.fileTypes.length > 0) {
-      const ext = path.extname(vector.filePath);
-      if (!filters.fileTypes.includes(ext)) {
-        return false;
-      }
-    }
-
-    if (filters.directories && filters.directories.length > 0) {
-      const dir = path.dirname(vector.filePath);
-      const matches = filters.directories.some((filterDir: string) =>
-        dir.includes(filterDir) || dir.startsWith(filterDir)
-      );
-      if (!matches) {
-        return false;
-      }
-    }
-
-    if (filters.astNodeTypes && filters.astNodeTypes.length > 0) {
-      if (!vector.metadata.astNode || !filters.astNodeTypes.includes(vector.metadata.astNode)) {
-        return false;
-      }
-    }
-
-    if (filters.excludePaths && filters.excludePaths.length > 0) {
-      const isExcluded = filters.excludePaths.some((excludePath: string) =>
-        vector.filePath.includes(excludePath)
-      );
-      if (isExcluded) {
-        return false;
-      }
-    }
-
-    if (filters.metadata) {
-      for (const [key, value] of Object.entries(filters.metadata)) {
-        if (value !== undefined && (vector.metadata as any)[key] !== value) {
-          return false;
-        }
-      }
-    }
-
-    return true;
-  }
-
-  /**
-   * Calculate cosine similarity between two vectors
-   */
-  private cosineSimilarity(vecA: number[], vecB: number[]): number {
-    if (vecA.length !== vecB.length) {
-      return 0;
-    }
-
-    let dotProduct = 0;
-    let normA = 0;
-    let normB = 0;
-
-    for (let i = 0; i < vecA.length; i++) {
-      dotProduct += vecA[i] * vecB[i];
-      normA += vecA[i] * vecA[i];
-      normB += vecB[i] * vecB[i];
-    }
-
-    if (normA === 0 || normB === 0) {
-      return 0;
-    }
-
-    return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
   }
 }

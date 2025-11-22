@@ -9,7 +9,10 @@ import type { RAGQuery, SemanticSearchResult } from '../models/RAGQuery';
 import type { DependencyGraph } from '../models/FileMetadata';
 import type { EndorsementConfig } from '../endorsement/types';
 import type { ContextBudgetOptions } from '../models/RAGQuery';
+import type { IContentSource, ContentSourceConfig } from '../interfaces/IContentSource';
 import { RepositoryIndexer } from './RepositoryIndexer';
+import { ContentSourceRegistry } from './ContentSourceRegistry';
+import { UnifiedIndexingPipeline, type UnifiedIndexingResult } from './UnifiedIndexingPipeline';
 import { EmbeddingProviderFactory } from '../services/embeddings/EmbeddingProviderFactory';
 import { VectorDatabaseFactory } from '../backends/VectorDatabaseFactory';
 import { EndorsementEngine } from '../endorsement/EndorsementEngine';
@@ -19,6 +22,8 @@ import { Inspector } from '../observability/Inspector';
 import { ConflictDetector } from '../conflict/ConflictDetector';
 import { DeprecationTracker } from '../deprecation/DeprecationTracker';
 import { URLIndexer } from '../services/url/URLIndexer';
+import { RepositorySource } from '../sources/repository';
+import { URLSource } from '../sources/url';
 import { createTreeLogger } from '../utils/logger';
 import type { TreeLogger } from '../utils/treeLogger';
 
@@ -99,6 +104,18 @@ export interface CodeRAGConfig {
     /** Tempo de expiração do cache em meses (padrão: 3) */
     cacheExpirationMonths?: number;
   };
+
+  /**
+   * 🆕 Múltiplas fontes de conteúdo para indexar (nova arquitetura extensível)
+   * Quando configurado, substitui urlIndexing e permite adicionar qualquer tipo de fonte
+   */
+  contentSources?: ContentSourceConfig[];
+
+  /**
+   * 🆕 Plugins de content sources customizados para registrar
+   * Útil para adicionar fontes de dados customizadas (Slack, Confluence, Jira, etc.)
+   */
+  plugins?: IContentSource[];
 }
 
 /**
@@ -140,9 +157,25 @@ export class CRAGCore {
   private conflictDetector: ConflictDetector | null = null;
   private deprecationTracker: DeprecationTracker | null = null;
 
+  // 🆕 Nova arquitetura extensível
+  private registry: ContentSourceRegistry;
+  private unifiedPipeline: UnifiedIndexingPipeline | null = null;
+
   constructor(config: CodeRAGConfig) {
     this.log = createTreeLogger({ component: 'CodeRAG' }, { structuredLogger: false });
     this.config = config;
+
+    // 🆕 Initialize content source registry with built-in sources
+    this.registry = new ContentSourceRegistry();
+    this.registry.register(new RepositorySource());
+    this.registry.register(new URLSource());
+
+    // Register custom plugins if provided
+    if (config.plugins) {
+      for (const plugin of config.plugins) {
+        this.registry.register(plugin);
+      }
+    }
 
     // Initialize endorsement engine if configured
     if (config.endorsement) {
@@ -216,8 +249,111 @@ export class CRAGCore {
   }
 
   /**
+   * 🆕 Indexa todas as fontes configuradas usando a nova arquitetura extensível
+   *
+   * Este método usa o UnifiedIndexingPipeline para indexar múltiplas fontes
+   * de conteúdo de forma unificada.
+   *
+   * @example
+   * ```typescript
+   * const rag = new CRAGCore({
+   *   projectPath: './my-project',
+   *   projectId: 'my-project',
+   *   embedding: { type: 'ollama', model: 'embeddinggemma' },
+   *   vectorDatabase: { type: 'json', storagePath: '.crag_cache' },
+   *   contentSources: [
+   *     { type: 'repository', config: { path: './my-project' } },
+   *     { type: 'url', config: { urls: [...], tavilyApiKey: '...' } },
+   *   ],
+   * });
+   *
+   * const result = await rag.indexAll();
+   * ```
+   */
+  async indexAll(): Promise<UnifiedIndexingResult> {
+    // Inicializar providers
+    await this.initializeProviders();
+
+    // Construir lista de sources
+    const sources: ContentSourceConfig[] = [];
+
+    // Se contentSources está configurado, usar nova arquitetura
+    if (this.config.contentSources && this.config.contentSources.length > 0) {
+      sources.push(...this.config.contentSources);
+    } else {
+      // Fallback: converter config legada para nova arquitetura
+
+      // Adicionar repositório principal
+      sources.push({
+        type: 'repository',
+        config: {
+          path: this.config.projectPath,
+          excludeDirectories: this.config.indexing?.excludeDirectories,
+          includePatterns: this.config.indexing?.includePatterns,
+          chunkingStrategy: this.config.indexing?.chunkingStrategy,
+          maxChunkSize: this.config.indexing?.maxChunkSize,
+          chunkOverlap: this.config.indexing?.chunkOverlap,
+        },
+        options: { priority: 0 },
+      });
+
+      // Adicionar URLs se configurado
+      if (this.config.urlIndexing?.urls && this.config.urlIndexing.urls.length > 0) {
+        sources.push({
+          type: 'url',
+          config: {
+            tavilyApiKey: this.config.urlIndexing.tavilyApiKey,
+            urls: this.config.urlIndexing.urls,
+            storagePath: this.config.urlIndexing.storagePath
+              ? path.resolve(this.config.projectPath, this.config.urlIndexing.storagePath)
+              : path.resolve(this.config.projectPath, '.crag', 'urls'),
+            cacheExpirationMonths: this.config.urlIndexing.cacheExpirationMonths,
+          },
+          options: { priority: 1 },
+        });
+      }
+    }
+
+    if (sources.length === 0) {
+      throw new Error('No content sources configured');
+    }
+
+    // Criar pipeline unificado
+    this.unifiedPipeline = new UnifiedIndexingPipeline(
+      this.registry,
+      this.embeddingProvider!,
+      this.vectorDatabase!,
+      {
+        embeddingDelay: this.config.indexing?.embeddingDelay || 100,
+        detectRelationships: true,
+        continueOnSourceError: true,
+      }
+    );
+
+    this.log.info(`Starting unified indexing with ${sources.length} sources...`);
+    return this.unifiedPipeline.indexAll(sources);
+  }
+
+  /**
+   * 🆕 Obtém o registry de content sources
+   * Útil para registrar plugins customizados em runtime
+   */
+  getRegistry(): ContentSourceRegistry {
+    return this.registry;
+  }
+
+  /**
+   * 🆕 Lista os content sources disponíveis
+   */
+  listAvailableSources(): string[] {
+    return this.registry.listNames();
+  }
+
+  /**
    * Indexa o repositório
    * Cria embeddings e armazena no banco vetorial
+   *
+   * @deprecated Use indexAll() para a nova arquitetura extensível
    */
   async index(): Promise<IndexedRepository> {
     // Verificar se projectPath existe

@@ -3,6 +3,7 @@ import type { IVectorDatabase } from '../interfaces/IVectorDatabase';
 import type { RAGQuery, SemanticSearchResult, RAGQueryConfig } from '../models/RAGQuery';
 import { createTreeLogger } from '../utils/logger';
 import type { TreeLogger } from '../utils/treeLogger';
+import { LRUCache } from '../utils/LRUCache';
 
 // Simple LLM provider interface for optional reranking
 interface ILLMProvider {
@@ -18,7 +19,7 @@ export class RAGQueryEngine {
   private vectorDatabase: IVectorDatabase;
   private embeddingProvider: IEmbeddingProvider;
   private llmProvider?: ILLMProvider;
-  private queryCache: Map<string, SemanticSearchResult[]> = new Map();
+  private queryCache: LRUCache<string, SemanticSearchResult[]> = new LRUCache(100);
 
   constructor(config: {
     vectorDatabase: IVectorDatabase;

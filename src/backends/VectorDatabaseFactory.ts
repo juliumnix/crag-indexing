@@ -35,9 +35,6 @@ export class VectorDatabaseFactory implements IVectorDatabaseFactory {
           dimension: config.distanceMetric ? undefined : 768, // Default for embeddinggemma
         });
 
-      case 'qdrant':
-        throw new Error('Qdrant backend not yet implemented');
-
       default:
         throw new Error(`Unknown vector database type: ${config.type}`);
     }

@@ -188,7 +188,7 @@ export class EndorsementEngine {
       name: sourceName,
       url,
       updatedAt: new Date(), // TODO: Extract from metadata if available
-      context: result.metadata.directory,
+      context: result.metadata.directory as string | undefined,
     };
   }
 

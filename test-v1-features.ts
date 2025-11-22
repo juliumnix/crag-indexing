@@ -41,7 +41,7 @@ loadEnvFile();
 
 /**
  * Script de Teste para CRAG Indexing v1.0
- * 
+ *
  * Testa todas as novas features:
  * - Endorsed Retrieval
  * - Version-Aware RAG
@@ -49,7 +49,8 @@ loadEnvFile();
  * - Observability
  * - Conflict Detection
  * - Source Deprecation
- * 
+ * - 🆕 Arquitetura Extensível (Content Sources)
+ *
  * Permite escolher entre modelos de embedding:
  * - nomic-embed-code (pesado, ~4GB)
  * - jina-code-embeddings-0.5b (leve, ~300-500MB)
@@ -203,7 +204,8 @@ async function main() {
   console.log('  ✅ Observability (traces e debugging)');
   console.log('  ✅ Conflict Detection (detecção de conflitos)');
   console.log('  ✅ Source Deprecation (tracking de obsoletos)');
-  console.log('  ✅ URL Indexing (documentação externa via Tavily)\n');
+  console.log('  ✅ URL Indexing (documentação externa via Tavily)');
+  console.log('  🆕 Arquitetura Extensível (Content Sources + Plugins)\n');
 
   // 1. Selecionar modelo
   const model = await selectModel();
@@ -412,7 +414,8 @@ async function main() {
   console.log('   - /version <versão> - Filtrar por versão (ex: /version 1.0.0)');
   console.log('   - /budget <max> <reservado> - Ajustar context budget (ex: /budget 10000 1000)');
   console.log('   - /traces - Ver traces de observabilidade');
-  console.log('   - /trace <id> - Ver detalhes de um trace específico\n');
+  console.log('   - /trace <id> - Ver detalhes de um trace específico');
+  console.log('   - /sources - Listar content sources disponíveis (arquitetura extensível)\n');
 
   let lastTraceId: string | null = null;
   let lastResults: any[] = [];
@@ -587,7 +590,20 @@ async function main() {
         continue;
       }
 
-      console.log('   ❌ Comando não reconhecido. Use /feedback, /version, /budget, /traces ou /trace');
+      // Comando: /sources
+      if (command === '/sources') {
+        console.log('\n🔌 Content Sources Disponíveis (Arquitetura Extensível):\n');
+        const sources = rag.listAvailableSources();
+        sources.forEach((source, i) => {
+          console.log(`   ${i + 1}. ${source}`);
+        });
+        console.log('\n   💡 Você pode adicionar plugins customizados via config.plugins');
+        console.log('   📚 Fontes built-in: repository, url');
+        console.log('   🔮 Planejado: slack, confluence, jira, notion\n');
+        continue;
+      }
+
+      console.log('   ❌ Comando não reconhecido. Use /feedback, /version, /budget, /traces, /trace ou /sources');
       continue;
     }
 
@@ -670,7 +686,7 @@ async function main() {
         chunksRetrieved: debugResults.length,
         chunksReturned: results.length,
         sources: [...new Set(results.map(r => r.filePath))],
-        scores: results.map((r, i) => ({
+        scores: results.map((r) => ({
           chunkId: r.metadata?.chunkId || `${r.filePath}:${r.metadata.startLine}`,
           embeddingScore: r.embeddingScore || r.similarity,
           credibilityScore: r.credibilityScore || 1.0,
@@ -720,8 +736,9 @@ async function main() {
           }
           
           // Mostrar deprecação se aplicável
-          if (r.deprecation) {
-            console.log(`      📅 ${r.deprecation.warning}`);
+          const deprecation = (r as any).deprecation;
+          if (deprecation) {
+            console.log(`      📅 ${deprecation.warning}`);
           }
           
           // Mostrar tokens usados se disponível (Context Budget)

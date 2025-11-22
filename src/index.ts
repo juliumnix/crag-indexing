@@ -16,6 +16,9 @@ export * from './models';
 // Interfaces
 export * from './interfaces';
 
+// 🆕 Content Sources (extensible architecture)
+export * from './sources';
+
 // Utils (exportar apenas os principais)
 export { createTreeLogger, treeLogger, logger, setLogLevel } from './utils/logger';
 export { inferLanguageFromFilePath } from './utils/language';
