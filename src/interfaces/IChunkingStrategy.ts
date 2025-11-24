@@ -1,4 +1,4 @@
-import type { CodeChunk } from '../models/CodeChunk';
+import type { CodeChunk } from '../model/CodeChunk';
 
 /**
  * Interface for code chunking strategies

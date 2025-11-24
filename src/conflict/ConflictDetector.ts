@@ -1,4 +1,4 @@
-import type { SemanticSearchResult } from '../models/RAGQuery';
+import type { SemanticSearchResult } from '../model/RAGQuery';
 import type { Conflict, ConflictSource } from './types';
 import { ConflictLevel } from './types';
 

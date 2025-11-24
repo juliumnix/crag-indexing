@@ -8,7 +8,7 @@ import type {
 import type { ContentSourceRegistry } from './ContentSourceRegistry';
 import type { IEmbeddingProvider } from '../interfaces/IEmbeddingProvider';
 import type { IVectorDatabase } from '../interfaces/IVectorDatabase';
-import type { CodeVector } from '../models/CodeChunk';
+import type { CodeVector } from '../model/CodeChunk';
 import { createTreeLogger } from '../utils/logger';
 import type { TreeLogger } from '../utils/treeLogger';
 

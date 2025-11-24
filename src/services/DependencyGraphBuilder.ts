@@ -1,6 +1,6 @@
 import * as path from 'path';
 import * as fs from 'fs';
-import type { FileMetadata, DependencyGraph } from '../models/FileMetadata';
+import type { FileMetadata, DependencyGraph } from '../model/FileMetadata';
 
 /**
  * Builds dependency graph for a set of files

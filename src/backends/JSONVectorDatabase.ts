@@ -1,8 +1,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import type { IVectorDatabase } from '../interfaces/IVectorDatabase';
-import type { CodeVector } from '../models/CodeChunk';
-import type { RAGQueryFilters, SemanticSearchResult } from '../models/RAGQuery';
+import type { CodeVector } from '../model/CodeChunk';
+import type { RAGQueryFilters, SemanticSearchResult } from '../model/RAGQuery';
 import { cosineSimilarity } from '../utils/similarity';
 import { matchesFilters } from '../utils/filters';
 

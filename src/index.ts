@@ -11,7 +11,7 @@ export * from './services/url';
 export * from './backends';
 
 // Models
-export * from './models';
+export * from './model';
 
 // Interfaces
 export * from './interfaces';

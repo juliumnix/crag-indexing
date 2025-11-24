@@ -1,6 +1,6 @@
-import type { IndexedRepository, IndexingConfig } from '../models/IndexedRepository';
-import type { RAGQuery, SemanticSearchResult } from '../models/RAGQuery';
-import type { DependencyGraph } from '../models/FileMetadata';
+import type { IndexedRepository, IndexingConfig } from '../model/IndexedRepository';
+import type { RAGQuery, SemanticSearchResult } from '../model/RAGQuery';
+import type { DependencyGraph } from '../model/FileMetadata';
 
 /**
  * Interface for repository indexing

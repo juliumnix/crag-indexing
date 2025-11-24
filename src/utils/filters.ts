@@ -1,6 +1,6 @@
 import * as path from 'path';
-import type { CodeVector } from '../models/CodeChunk';
-import type { RAGQueryFilters } from '../models/RAGQuery';
+import type { CodeVector } from '../model/CodeChunk';
+import type { RAGQueryFilters } from '../model/RAGQuery';
 
 /**
  * Check if a vector matches the given filters

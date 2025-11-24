@@ -1,4 +1,4 @@
-import type { SemanticSearchResult } from '../models/RAGQuery';
+import type { SemanticSearchResult } from '../model/RAGQuery';
 
 /**
  * Context Budget Configuration

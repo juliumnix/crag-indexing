@@ -1,7 +1,7 @@
 import { Pinecone } from '@pinecone-database/pinecone';
 import type { IVectorDatabase } from '../interfaces/IVectorDatabase';
-import type { CodeVector } from '../models/CodeChunk';
-import type { RAGQueryFilters, SemanticSearchResult } from '../models/RAGQuery';
+import type { CodeVector } from '../model/CodeChunk';
+import type { RAGQueryFilters, SemanticSearchResult } from '../model/RAGQuery';
 
 /**
  * Pinecone vector database backend

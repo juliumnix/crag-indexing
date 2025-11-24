@@ -1,6 +1,6 @@
 import type { IEmbeddingProvider } from '../interfaces/IEmbeddingProvider';
 import type { IVectorDatabase } from '../interfaces/IVectorDatabase';
-import type { RAGQuery, SemanticSearchResult, RAGQueryConfig } from '../models/RAGQuery';
+import type { RAGQuery, SemanticSearchResult, RAGQueryConfig } from '../model/RAGQuery';
 import { createTreeLogger } from '../utils/logger';
 import type { TreeLogger } from '../utils/treeLogger';
 import { LRUCache } from '../utils/LRUCache';

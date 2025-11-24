@@ -1,5 +1,5 @@
-import type { CodeVector } from '../models/CodeChunk';
-import type { RAGQueryFilters, SemanticSearchResult } from '../models/RAGQuery';
+import type { CodeVector } from '../model/CodeChunk';
+import type { RAGQueryFilters, SemanticSearchResult } from '../model/RAGQuery';
 
 /**
  * Interface for vector database backends

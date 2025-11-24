@@ -1,6 +1,6 @@
 import { createHash } from 'crypto';
 import type { IChunkingStrategy } from '../../interfaces/IChunkingStrategy';
-import type { CodeChunk } from '../../models/CodeChunk';
+import type { CodeChunk } from '../../model/CodeChunk';
 
 /**
  * Fixed-size chunking strategy

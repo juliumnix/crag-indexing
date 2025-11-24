@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as yaml from 'yaml';
 import micromatch from 'micromatch';
-import type { SemanticSearchResult } from '../models/RAGQuery';
+import type { SemanticSearchResult } from '../model/RAGQuery';
 import type { DeprecatedSource, DeprecationWarning } from './types';
 
 /**

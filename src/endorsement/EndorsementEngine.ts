@@ -7,7 +7,7 @@ import type {
   EndorsedRetrievalResult,
 } from './types';
 import { FeedbackStore } from './FeedbackStore';
-import type { SemanticSearchResult } from '../models/RAGQuery';
+import type { SemanticSearchResult } from '../model/RAGQuery';
 
 /**
  * Endorsement Engine

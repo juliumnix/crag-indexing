@@ -1,4 +1,4 @@
-import type { SemanticSearchResult } from '../models/RAGQuery';
+import type { SemanticSearchResult } from '../model/RAGQuery';
 import type { ContextBudget, OptimizedChunk } from './types';
 import { Tokenizer } from './Tokenizer';
 
